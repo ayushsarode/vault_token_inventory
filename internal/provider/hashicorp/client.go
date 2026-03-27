@@ -37,6 +37,7 @@ func NewVaultClient(addr, token, mount string) (*VaultClient, error) {
 		return nil, fmt.Errorf("creating vault client: %w", err)
 	}
 
+	//nolint:revive
 	if token != "" {
 		// Token authentication
 		client.SetToken(token)
