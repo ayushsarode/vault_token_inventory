@@ -14,6 +14,11 @@ Ingestion Working explain: https://youtu.be/qyzz4C7e_oY
 
 ### Running the Application
 
+Clone Repo
+```bash
+git clone https://github.com/ayushsarode/vault_token_inventory.git
+```
+
 ```bash
 make build
 make run
