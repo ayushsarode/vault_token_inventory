@@ -69,6 +69,7 @@ type ListFilter struct {
 	ProviderID *uuid.UUID
 	Status     string
 	SecretType string
+	Path       string
 	Search     string
 	Page       int
 	Limit      int

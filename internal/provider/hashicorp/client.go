@@ -32,24 +32,15 @@ func NewVaultClient(addr, token, roleID, secretID, mount string) (*VaultClient, 
 	config := api.DefaultConfig()
 	config.Address = addr
 
-	config.MaxRetries = 5
-	config.Timeout = 30 * time.Second //nolint:mnd
-
 	client, err := api.NewClient(config)
 	if err != nil {
 		return nil, fmt.Errorf("creating vault client: %w", err)
 	}
 
-	//nolint:gocritic,nestif
-	if token != "" {
-		client.SetToken(token)
-		// Check if token is valid
-		_, err = client.Auth().Token().LookupSelf()
-		if err != nil {
-			return nil, fmt.Errorf("invalid token: %w", err)
-		}
-	} else if roleID != "" && secretID != "" {
-		secret, err := client.Logical().Write("auth/approle/login", map[string]any{
+	// Use AppRole if role_id and secret_id are provided, otherwise use token
+	if roleID != "" && secretID != "" {
+		// AppRole authentication
+		secret, err := client.Logical().Write("auth/approle/login", map[string]interface{}{
 			"role_id":   roleID,
 			"secret_id": secretID,
 		})
@@ -60,6 +51,9 @@ func NewVaultClient(addr, token, roleID, secretID, mount string) (*VaultClient, 
 			return nil, errors.New("approle login returned no auth info")
 		}
 		client.SetToken(secret.Auth.ClientToken)
+	} else if token != "" {
+		// Token authentication
+		client.SetToken(token)
 	} else {
 		return nil, errors.New("no valid credentials provided (need token or approle)")
 	}
@@ -228,7 +222,21 @@ func (c *VaultClient) walk(ctx context.Context, currentPath string, isV2 bool, r
 				ownerStr = fmt.Sprintf("%v", ownerVal)
 			}
 
-			valBytes, _ := json.Marshal(secretData)
+			// Extract only non-sensitive metadata
+			metadata := map[string]interface{}{
+				"keys_count": len(secretData),
+				"created_at": time.Now().UTC().Format(time.RFC3339),
+			}
+
+			// Add safe metadata fields only
+			safeFields := []string{"owner", "team", "environment", "service", "ttl", "description"}
+			for _, field := range safeFields {
+				if val, exists := secretData[field]; exists {
+					metadata[field] = val
+				}
+			}
+
+			valBytes, _ := json.Marshal(metadata)
 
 			var ttlPtr *int64
 			if s.LeaseDuration > 0 {

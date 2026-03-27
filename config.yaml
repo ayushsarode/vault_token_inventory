@@ -6,7 +6,9 @@ database:
 
 vault:
   address: "http://vault:8200"
-  token: "root"
+  token: ""
+  role_id: "f588882f-1e45-b35d-6ad6-7b2b75843e95"
+  secret_id: "6f5e41ee-7f98-1e3b-2694-872d0cbb40a3"
   mount: "secret"
 
 ingestion:

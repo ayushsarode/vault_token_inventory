@@ -34,6 +34,7 @@ func (h *InventoryHandler) List(c *gin.Context) {
 	filter := models.ListFilter{
 		Status:     c.Query("status"),
 		SecretType: c.Query("type"),
+		Path:       c.Query("path"),
 		Search:     c.Query("search"),
 		Page:       page,
 		Limit:      limit,

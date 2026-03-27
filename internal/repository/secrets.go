@@ -128,6 +128,11 @@ func (r *SecretRepo) ListSecrets(ctx context.Context, f models.ListFilter) ([]mo
 		sb.Where(sb.Equal("secret_type", f.SecretType))
 		countSb.Where(countSb.Equal("secret_type", f.SecretType))
 	}
+	if f.Path != "" {
+		pathPrefix := f.Path + "%"
+		sb.Where("path LIKE " + sb.Var(pathPrefix))
+		countSb.Where("path LIKE " + countSb.Var(pathPrefix))
+	}
 	if f.Search != "" {
 		search := "%" + f.Search + "%"
 		sb.Where(sb.Or(
