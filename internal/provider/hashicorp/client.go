@@ -82,7 +82,7 @@ func (c *VaultClient) FetchAll(ctx context.Context) ([]ExtractedSecret, error) {
 		if mountPath != "" && mountPath[len(mountPath)-1] != '/' {
 			mountPath += "/"
 		}
-		
+
 		if mountInfo, ok := mounts[mountPath]; ok {
 			if version, exists := mountInfo.Options["version"]; exists && version == "1" {
 				isV2 = false
@@ -193,7 +193,6 @@ func (c *VaultClient) walk(ctx context.Context, currentPath string, isV2 bool, r
 	for _, k := range keys {
 		keyStr := k.(string)
 		if before, ok0 := strings.CutSuffix(keyStr, "/"); ok0 {
-
 			subPath := fmt.Sprintf("%s/%s", strings.TrimSuffix(currentPath, "/"), before)
 			_ = c.walk(ctx, subPath, isV2, results)
 		} else {
