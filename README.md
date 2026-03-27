@@ -2,6 +2,8 @@
 
 This assignment is a robust, production-grade service designed to ingest secrets and tokens from HashiCorp Vault into a unified, centralized inventory system (PostgreSQL). It ensures idempotency through accurate change detection, features a polling engine, and provides a secure API layer.
 
+Ingestion Working explain: https://youtu.be/qyzz4C7e_oY
+
 ## Setup Instructions
 
 ### Technology Stack
