@@ -1,0 +1,14 @@
+server:
+  port: 8080
+
+database:
+  dsn: "postgres://vault_token_inventory:vault_token_inventory@postgres:5432/vault_token_inventory?sslmode=disable"
+
+vault:
+  address: "http://vault:8200"
+  token: "root"
+  mount: "secret"
+
+ingestion:
+  interval_seconds: 60
+  full_sync_on_start: true

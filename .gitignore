@@ -1,0 +1,6 @@
+# Secrets & Configs
+.env
+
+
+# Docker Data
+docker_data/
