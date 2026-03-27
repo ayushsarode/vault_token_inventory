@@ -24,11 +24,9 @@ type DatabaseConfig struct {
 }
 
 type VaultConfig struct {
-	Address  string `mapstructure:"address"`
-	Token    string `mapstructure:"token"`
-	RoleID   string `mapstructure:"role_id"`
-	SecretID string `mapstructure:"secret_id"`
-	Mount    string `mapstructure:"mount"`
+	Address string `mapstructure:"address"`
+	Token   string `mapstructure:"token"`
+	Mount   string `mapstructure:"mount"`
 }
 
 type IngestionConfig struct {
@@ -48,8 +46,6 @@ func Load() (*Config, error) {
 	_ = viper.BindEnv("database.dsn", "DATABASE_DSN")
 	_ = viper.BindEnv("vault.address", "VAULT_ADDR")
 	_ = viper.BindEnv("vault.token", "VAULT_TOKEN")
-	_ = viper.BindEnv("vault.role_id", "VAULT_ROLE_ID")
-	_ = viper.BindEnv("vault.secret_id", "VAULT_SECRET_ID")
 	_ = viper.BindEnv("vault.mount", "VAULT_MOUNT")
 
 	if err := viper.ReadInConfig(); err != nil {

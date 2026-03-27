@@ -28,7 +28,7 @@ type ExtractedSecret struct {
 	Metadata   []byte
 }
 
-func NewVaultClient(addr, token, roleID, secretID, mount string) (*VaultClient, error) {
+func NewVaultClient(addr, token, mount string) (*VaultClient, error) {
 	config := api.DefaultConfig()
 	config.Address = addr
 
@@ -37,25 +37,11 @@ func NewVaultClient(addr, token, roleID, secretID, mount string) (*VaultClient, 
 		return nil, fmt.Errorf("creating vault client: %w", err)
 	}
 
-	// Use AppRole if role_id and secret_id are provided, otherwise use token
-	if roleID != "" && secretID != "" {
-		// AppRole authentication
-		secret, err := client.Logical().Write("auth/approle/login", map[string]interface{}{
-			"role_id":   roleID,
-			"secret_id": secretID,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("approle login failed: %w", err)
-		}
-		if secret == nil || secret.Auth == nil {
-			return nil, errors.New("approle login returned no auth info")
-		}
-		client.SetToken(secret.Auth.ClientToken)
-	} else if token != "" {
+	if token != "" {
 		// Token authentication
 		client.SetToken(token)
 	} else {
-		return nil, errors.New("no valid credentials provided (need token or approle)")
+		return nil, errors.New("no valid token provided")
 	}
 
 	return &VaultClient{
@@ -193,10 +179,8 @@ func (c *VaultClient) walk(ctx context.Context, currentPath string, isV2 bool, r
 			// Leaf node secret
 			leafPath := fmt.Sprintf("%s/%s", strings.TrimSuffix(currentPath, "/"), keyStr)
 
-			// Fetch exact secret
 			dataPath := leafPath
 			if isV2 {
-				// Convert mount/metadata/foo to mount/data/foo
 				dataPath = strings.Replace(leafPath, "/metadata/", "/data/", 1)
 			}
 			s, err := c.client.Logical().ReadWithContext(ctx, dataPath)
@@ -205,7 +189,6 @@ func (c *VaultClient) walk(ctx context.Context, currentPath string, isV2 bool, r
 				continue
 			}
 
-			// In KV v2, the actual KVs are under "data".
 			var secretData map[string]any
 			if isV2 {
 				v2Data, exists := s.Data["data"].(map[string]any)
@@ -222,13 +205,11 @@ func (c *VaultClient) walk(ctx context.Context, currentPath string, isV2 bool, r
 				ownerStr = fmt.Sprintf("%v", ownerVal)
 			}
 
-			// Extract only non-sensitive metadata
-			metadata := map[string]interface{}{
+			metadata := map[string]any{
 				"keys_count": len(secretData),
 				"created_at": time.Now().UTC().Format(time.RFC3339),
 			}
 
-			// Add safe metadata fields only
 			safeFields := []string{"owner", "team", "environment", "service", "ttl", "description"}
 			for _, field := range safeFields {
 				if val, exists := secretData[field]; exists {

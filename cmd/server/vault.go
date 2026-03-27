@@ -10,8 +10,6 @@ func initVault(cfg *config.Config) (*hashicorp.VaultClient, error) {
 	client, err := hashicorp.NewVaultClient(
 		cfg.Vault.Address,
 		cfg.Vault.Token,
-		cfg.Vault.RoleID,
-		cfg.Vault.SecretID,
 		cfg.Vault.Mount,
 	)
 	if err != nil {

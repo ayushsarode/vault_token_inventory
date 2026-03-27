@@ -95,7 +95,7 @@ The architecture follows Domain-Driven Design principles organized into modular 
    - `internal/api/`: REST API layer built with the `Gin` framework containing handlers and routing logic.
    - `internal/ingestion/`: The core engine responsible for polling Vault, tracking state, and batch-processing records.
    - `internal/repository/`: The data access layer. Uses raw SQL via `pgx` and `go-sqlbuilder` for predictable, performant queries and transaction management over heavy ORMs.
-   - `internal/provider/`: Abstraction over HashiCorp Vault's official SDK, supporting AppRole authentication and automatic token renewal.
+   - `internal/provider/`: Abstraction over HashiCorp Vault's official SDK, supporting token-based authentication and automatic token renewal.
    - `internal/logger/`: Custom structured logging built on `zerolog` for high-performance and machine-readable output.
 
 2. **Idempotency & Change Detection**: 
