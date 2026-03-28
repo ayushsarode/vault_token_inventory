@@ -21,3 +21,4 @@ CREATE INDEX IF NOT EXISTS idx_secrets_provider_id ON secrets(provider_id);
 CREATE INDEX IF NOT EXISTS idx_secrets_status       ON secrets(status);
 CREATE INDEX IF NOT EXISTS idx_secrets_expires_at   ON secrets(expires_at);
 CREATE INDEX IF NOT EXISTS idx_secrets_risk_score   ON secrets(risk_score DESC);
+

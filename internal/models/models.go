@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,7 +28,7 @@ type Secret struct {
 	Owner        string     `json:"owner"`
 	LastSyncedAt time.Time  `json:"last_synced_at"`
 	RiskScore    int        `json:"risk_score"`
-	Metadata     []byte     `json:"metadata"`
+	Metadata     json.RawMessage `json:"metadata"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 }
@@ -37,7 +38,7 @@ type SecretVersion struct {
 	SecretID    uuid.UUID `json:"secret_id"`
 	Version     int       `json:"version"`
 	CreatedTime time.Time `json:"created_time"`
-	Metadata    []byte    `json:"metadata"`
+	Metadata    json.RawMessage `json:"metadata"`
 }
 
 type SyncLog struct {

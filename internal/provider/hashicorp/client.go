@@ -13,6 +13,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const hoursInDay = 24
+
 type VaultClient struct {
 	client *api.Client
 	mount  string
@@ -37,12 +39,10 @@ func NewVaultClient(addr, token, mount string) (*VaultClient, error) {
 		return nil, fmt.Errorf("creating vault client: %w", err)
 	}
 
-	//nolint:revive
-	if token != "" {
-		client.SetToken(token)
-	} else {
+	if token == "" {
 		return nil, errors.New("no valid token provided")
 	}
+	client.SetToken(token)
 
 	return &VaultClient{
 		client: client,
@@ -50,30 +50,8 @@ func NewVaultClient(addr, token, mount string) (*VaultClient, error) {
 	}, nil
 }
 
-//nolint:nestif
 func (c *VaultClient) FetchAll(ctx context.Context) ([]ExtractedSecret, error) {
-	isV2 := true
-
-	mounts, err := c.client.Sys().ListMounts()
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to check sys/mounts permissions (defaulting to KV v2)")
-	} else {
-		mountPath := c.mount
-		if mountPath != "" && mountPath[len(mountPath)-1] != '/' {
-			mountPath += "/"
-		}
-
-		if mountInfo, ok := mounts[mountPath]; ok {
-			if version, exists := mountInfo.Options["version"]; exists && version == "1" {
-				isV2 = false
-				log.Info().Str("mount", c.mount).Msg("Dynamic detection: KV Type Version 1")
-			} else {
-				log.Info().Str("mount", c.mount).Msg("Dynamic detection: KV Type Version 2")
-			}
-		} else {
-			log.Warn().Str("mount", mountPath).Msg("Mount path not found in sys/mounts (defaulting to KV v2)")
-		}
-	}
+	isV2 := c.detectKVType()
 
 	var allSecrets []ExtractedSecret
 
@@ -82,19 +60,41 @@ func (c *VaultClient) FetchAll(ctx context.Context) ([]ExtractedSecret, error) {
 		basePath = c.mount + "/metadata"
 	}
 
-	// Start recursive walk
-	err = c.walk(ctx, basePath, isV2, &allSecrets)
-	return allSecrets, err
+	c.walk(ctx, basePath, isV2, &allSecrets)
+	return allSecrets, nil
 }
 
-//nolint:cyclop
+func (c *VaultClient) detectKVType() bool {
+	mounts, err := c.client.Sys().ListMounts()
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to check sys/mounts permissions (defaulting to KV v2)")
+		return true
+	}
+
+	mountPath := c.mount
+	if mountPath != "" && !strings.HasSuffix(mountPath, "/") {
+		mountPath += "/"
+	}
+
+	if mountInfo, ok := mounts[mountPath]; ok {
+		if version, exists := mountInfo.Options["version"]; exists && version == "1" {
+			log.Info().Str("mount", c.mount).Msg("Dynamic detection: KV Type Version 1")
+			return false
+		}
+		log.Info().Str("mount", c.mount).Msg("Dynamic detection: KV Type Version 2")
+	} else {
+		log.Warn().Str("mount", mountPath).Msg("Mount path not found in sys/mounts (defaulting to KV v2)")
+	}
+	return true
+}
+
 func (c *VaultClient) FetchTokens(ctx context.Context) ([]ExtractedSecret, error) {
 	var results []ExtractedSecret
 
 	secret, err := c.client.Logical().ListWithContext(ctx, "auth/token/accessors")
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to list token accessors (requires sudo/root)")
-		return results, nil // Graceful failure if no permission
+		return results, nil
 	}
 	if secret == nil || len(secret.Data) == 0 {
 		return results, nil
@@ -111,151 +111,199 @@ func (c *VaultClient) FetchTokens(ctx context.Context) ([]ExtractedSecret, error
 			continue
 		}
 
-		s, err := c.client.Logical().WriteWithContext(ctx, "auth/token/lookup-accessor", map[string]any{
-			"accessor": accessor,
-		})
-		if err != nil || s == nil || s.Data == nil {
-			log.Warn().Str("accessor", accessor).Msg("Failed to lookup token accessor")
-			continue
+		if ext := c.fetchSingleToken(ctx, accessor); ext != nil {
+			results = append(results, *ext)
 		}
-
-		var ttlPtr *int64
-		if ttlVal, ok := s.Data["ttl"]; ok {
-			switch v := ttlVal.(type) {
-			case float64:
-				ttl := int64(v)
-				ttlPtr = &ttl
-			case json.Number:
-				if ttl, err := v.Int64(); err == nil && ttl > 0 {
-					ttlPtr = &ttl
-				}
-			case string:
-				if ttl, err := strconv.ParseInt(v, 10, 64); err == nil && ttl > 0 {
-					ttlPtr = &ttl
-				}
-			}
-		}
-
-		valBytes, _ := json.Marshal(s.Data)
-
-		ext := ExtractedSecret{
-			Path:       "auth/token/accessors",
-			Key:        accessor,
-			SecretType: "vault_token",
-			Metadata:   valBytes,
-			TTL:        ttlPtr,
-		}
-
-		results = append(results, ext)
 	}
 
 	return results, nil
 }
 
-//nolint:gocognit,funlen,cyclop,nestif,unparam
-func (c *VaultClient) walk(ctx context.Context, currentPath string, isV2 bool, results *[]ExtractedSecret) error {
+func (c *VaultClient) fetchSingleToken(ctx context.Context, accessor string) *ExtractedSecret {
+	s, err := c.client.Logical().WriteWithContext(ctx, "auth/token/lookup-accessor", map[string]any{
+		"accessor": accessor,
+	})
+	if err != nil || s == nil || s.Data == nil {
+		log.Warn().Str("accessor", accessor).Msg("Failed to lookup token accessor")
+		return nil
+	}
+
+	var ttlPtr *int64
+	if ttlVal, ok := s.Data["ttl"]; ok {
+		ttlPtr = parseTTLValue(ttlVal)
+	}
+
+	valBytes, _ := json.Marshal(s.Data)
+
+	return &ExtractedSecret{
+		Path:       "auth/token/accessors",
+		Key:        accessor,
+		SecretType: "vault_token",
+		Metadata:   valBytes,
+		TTL:        ttlPtr,
+	}
+}
+
+func (c *VaultClient) walk(ctx context.Context, currentPath string, isV2 bool, results *[]ExtractedSecret) {
 	log.Debug().Str("path", currentPath).Msg("Walking Vault path")
 
 	secret, err := c.client.Logical().ListWithContext(ctx, currentPath)
 	if err != nil {
 		log.Warn().Err(err).Str("path", currentPath).Msg("Failed to list path (permission denied?)")
-		return nil // skip on error (graceful partial failure)
+		return
 	}
 	if secret == nil || secret.Data == nil {
-		return nil
+		return
 	}
 
 	keys, ok := secret.Data["keys"].([]any)
 	if !ok {
-		return nil
+		return
 	}
 
+	trimmedPath := strings.TrimSuffix(currentPath, "/")
+
 	for _, k := range keys {
-		keyStr := k.(string)
+		keyStr, ok := k.(string)
+		if !ok {
+			continue
+		}
 		if before, ok0 := strings.CutSuffix(keyStr, "/"); ok0 {
-			subPath := fmt.Sprintf("%s/%s", strings.TrimSuffix(currentPath, "/"), before)
-			_ = c.walk(ctx, subPath, isV2, results)
+			c.walk(ctx, trimmedPath+"/"+before, isV2, results)
 		} else {
-			// Leaf node secret
-			leafPath := fmt.Sprintf("%s/%s", strings.TrimSuffix(currentPath, "/"), keyStr)
+			c.processLeafNode(ctx, trimmedPath, keyStr, isV2, currentPath, results)
+		}
+	}
+}
 
-			dataPath := leafPath
-			if isV2 {
-				dataPath = strings.Replace(leafPath, "/metadata/", "/data/", 1)
-			}
-			s, err := c.client.Logical().ReadWithContext(ctx, dataPath)
-			if err != nil || s == nil || s.Data == nil {
-				log.Warn().Err(err).Str("path", dataPath).Msg("Failed to read secret")
-				continue
-			}
+func (c *VaultClient) processLeafNode(ctx context.Context, trimmedPath, keyStr string, isV2 bool, currentPath string, results *[]ExtractedSecret) {
+	leafPath := trimmedPath + "/" + keyStr
 
-			var secretData map[string]any
-			if isV2 {
-				v2Data, exists := s.Data["data"].(map[string]any)
-				if !exists {
-					continue
-				}
-				secretData = v2Data
-			} else {
-				secretData = s.Data
-			}
+	dataPath := leafPath
+	if isV2 {
+		dataPath = strings.Replace(leafPath, "/metadata/", "/data/", 1)
+	}
+	s, secretData := c.fetchSecretData(ctx, dataPath, isV2)
+	if secretData == nil {
+		return
+	}
 
-			var ownerStr string
-			if ownerVal, ok := secretData["owner"]; ok {
-				ownerStr = fmt.Sprintf("%v", ownerVal)
-			}
+	var customMeta map[string]any
+	if isV2 {
+		customMeta = c.readCustomMeta(ctx, leafPath)
+	}
 
-			metadata := map[string]any{
-				"keys_count": len(secretData),
-			}
+	valBytes, ownerStr := buildSecretMetadata(secretData, customMeta)
 
-			safeFields := []string{"owner", "team", "environment", "service", "ttl", "description"}
-			for _, field := range safeFields {
-				if val, exists := secretData[field]; exists {
-					metadata[field] = val
-				}
-			}
+	var ttlPtr *int64
+	if s.LeaseDuration > 0 {
+		ttl := int64(s.LeaseDuration)
+		ttlPtr = &ttl
+	} else if ttlVal, ok := secretData["ttl"]; ok {
+		ttlPtr = parseTTLValue(ttlVal)
+	} else if ttlVal, ok := customMeta["ttl"]; ok {
+		ttlPtr = parseTTLValue(ttlVal)
+	}
 
-			valBytes, _ := json.Marshal(metadata)
+	canonicalPath := currentPath
+	if isV2 {
+		canonicalPath = strings.Replace(currentPath, "/metadata", "", 1)
+	}
 
-			var ttlPtr *int64
-			if s.LeaseDuration > 0 {
-				ttl := int64(s.LeaseDuration)
-				ttlPtr = &ttl
-			} else if ttlVal, ok := secretData["ttl"]; ok {
-				switch v := ttlVal.(type) {
-				case float64:
-					ttl := int64(v)
-					ttlPtr = &ttl
-				case string:
-					cleanV := v
-					if before, ok0 := strings.CutSuffix(cleanV, "d"); ok0 {
-						if val, err := strconv.Atoi(before); err == nil {
-							cleanV = fmt.Sprintf("%dh", val*24) //nolint:mnd
-						}
-					}
-					if d, err := time.ParseDuration(cleanV); err == nil {
-						ttl := int64(d.Seconds())
-						ttlPtr = &ttl
-					} else if i, err := strconv.ParseInt(cleanV, 10, 64); err == nil {
-						ttlPtr = &i
-					}
-				}
-			}
+	ext := ExtractedSecret{
+		Path:       canonicalPath,
+		Key:        keyStr,
+		SecretType: "generic",
+		Metadata:   valBytes,
+		Owner:      ownerStr,
+		TTL:        ttlPtr,
+		Policies:   []string{},
+	}
 
-			ext := ExtractedSecret{
-				Path:       currentPath,
-				Key:        keyStr,
-				SecretType: "generic",
-				Metadata:   valBytes,
-				Owner:      ownerStr,
-				TTL:        ttlPtr,
-				Policies:   []string{},
-			}
+	*results = append(*results, ext)
+}
 
-			*results = append(*results, ext)
+func (c *VaultClient) fetchSecretData(ctx context.Context, dataPath string, isV2 bool) (*api.Secret, map[string]any) {
+	s, err := c.client.Logical().ReadWithContext(ctx, dataPath)
+	if err != nil {
+		log.Debug().Err(err).Str("path", strings.ToLower(dataPath)).Msg("Skipping secret: no version data (deleted or empty)")
+		return nil, nil
+	}
+	if s == nil || s.Data == nil {
+		log.Debug().Str("path", strings.ToLower(dataPath)).Msg("Skipping secret: nil response from Vault")
+		return nil, nil
+	}
+
+	if isV2 {
+		v2Data, exists := s.Data["data"].(map[string]any)
+		if !exists {
+			return nil, nil
+		}
+		return s, v2Data
+	}
+	return s, s.Data
+}
+
+func (c *VaultClient) readCustomMeta(ctx context.Context, leafPath string) map[string]any {
+	if metaSecret, metaErr := c.client.Logical().ReadWithContext(ctx, leafPath); metaErr == nil && metaSecret != nil {
+		if cm, ok := metaSecret.Data["custom_metadata"].(map[string]any); ok {
+			return cm
+		}
+	}
+	return nil
+}
+
+func buildSecretMetadata(secretData, customMeta map[string]any) ([]byte, string) {
+	metadata := map[string]any{
+		"keys_count": len(secretData),
+	}
+	for _, field := range []string{"owner", "team", "environment", "service", "ttl", "description"} {
+		if val, exists := secretData[field]; exists {
+			metadata[field] = val
+		} else if val, exists := customMeta[field]; exists {
+			metadata[field] = val
 		}
 	}
 
+	var ownerStr string
+	if ownerVal, ok := metadata["owner"]; ok {
+		ownerStr = fmt.Sprintf("%v", ownerVal)
+	}
+
+	valBytes, _ := json.Marshal(metadata)
+	return valBytes, ownerStr
+}
+
+func parseTTLValue(val any) *int64 {
+	switch v := val.(type) {
+	case float64:
+		if v > 0 {
+			ttl := int64(v)
+			return &ttl
+		}
+	case json.Number:
+		if ttl, err := v.Int64(); err == nil && ttl > 0 {
+			return &ttl
+		}
+	case string:
+		return parseStringTTL(v)
+	}
+	return nil
+}
+
+func parseStringTTL(v string) *int64 {
+	clean := v
+	if before, ok := strings.CutSuffix(clean, "d"); ok {
+		if days, err := strconv.Atoi(before); err == nil {
+			clean = fmt.Sprintf("%dh", days*hoursInDay)
+		}
+	}
+	if d, err := time.ParseDuration(clean); err == nil {
+		ttl := int64(d.Seconds())
+		return &ttl
+	}
+	if i, err := strconv.ParseInt(clean, 10, 64); err == nil && i > 0 {
+		return &i
+	}
 	return nil
 }

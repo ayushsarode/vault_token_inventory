@@ -187,6 +187,7 @@ func (e *Engine) RunSync(ctx context.Context) error {
 			continue
 		}
 
+	
 		switch action {
 		case "created":
 			syncLog.SecretsCreated++
