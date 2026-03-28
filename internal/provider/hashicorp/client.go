@@ -39,7 +39,6 @@ func NewVaultClient(addr, token, mount string) (*VaultClient, error) {
 
 	//nolint:revive
 	if token != "" {
-		// Token authentication
 		client.SetToken(token)
 	} else {
 		return nil, errors.New("no valid token provided")
@@ -208,7 +207,6 @@ func (c *VaultClient) walk(ctx context.Context, currentPath string, isV2 bool, r
 
 			metadata := map[string]any{
 				"keys_count": len(secretData),
-				"created_at": time.Now().UTC().Format(time.RFC3339),
 			}
 
 			safeFields := []string{"owner", "team", "environment", "service", "ttl", "description"}
